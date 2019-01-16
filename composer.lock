@@ -1,0 +1,115 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "a634c0764ff75f2b615395db5d99fdd7",
+    "packages": [
+        {
+            "name": "treinetic/imageartist",
+            "version": "1.0.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/Treinetic/ImageArtist.git",
+                "reference": "483b966dca51eb809aeb048df460e26311c23db1"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/Treinetic/ImageArtist/zipball/483b966dca51eb809aeb048df460e26311c23db1",
+                "reference": "483b966dca51eb809aeb048df460e26311c23db1",
+                "shasum": ""
+            },
+            "require": {
+                "ext-gd": "*",
+                "php": ">=5.5.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "4.*",
+                "scrutinizer/ocular": "~1.1"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Treinetic\\ImageArtist\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Imal hasaranga",
+                    "email": "imaa95@gmail.com"
+                }
+            ],
+            "description": "ImageArtist is a php gd Wrapper which makes Image manipulation insanely easy, we introduce ImageArtist as Photoshop for php",
+            "keywords": [
+                "Easy GD Wrapper",
+                "GD Made Easy",
+                "Image Shape crop",
+                "PHP GD Wrapper",
+                "image merge",
+                "image to base64",
+                "scale image",
+                "write text on image"
+            ],
+            "time": "2018-11-21T08:30:30+00:00"
+        },
+        {
+            "name": "ulrichsg/getopt-php",
+            "version": "3.2.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/getopt-php/getopt-php.git",
+                "reference": "6d22d6febd672954bf1b9676a4833489c5509116"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/getopt-php/getopt-php/zipball/6d22d6febd672954bf1b9676a4833489c5509116",
+                "reference": "6d22d6febd672954bf1b9676a4833489c5509116",
+                "shasum": ""
+            },
+            "require": {
+                "ext-mbstring": "*",
+                "php": ">=5.4.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^4.8",
+                "squizlabs/php_codesniffer": "^2.7"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "GetOpt\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Ulrich Schmidt-Goertz",
+                    "email": "ulrich@schmidt-goertz.de"
+                },
+                {
+                    "name": "Thomas Flori",
+                    "email": "thflori@gmail.com"
+                }
+            ],
+            "description": "Command line arguments parser for PHP 5.4 - 7.1",
+            "homepage": "http://getopt-php.github.io/getopt-php",
+            "time": "2018-08-17T04:48:55+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "beta",
+    "stability-flags": [],
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": [],
+    "platform-dev": []
+}
