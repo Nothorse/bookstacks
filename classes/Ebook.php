@@ -9,6 +9,7 @@ use EBookLib\Epub\Metadata as EpubMetadata;
 use EBookLib\Epub\Guide as Guide;
 use EBookLib\Epub\TableOfContents;
 use EBookLib\Epub\TocItem;
+use Exception;
 use Treinetic\ImageArtist\lib\Image as Image;
 /**
  * Class Ebook
@@ -61,7 +62,7 @@ class Ebook extends MetaBook {
    * @param string $epub epub file
    */
   public function __construct($epub = null) {
-    if (file_exists($epub)) {
+    if ($epub && file_exists($epub)) {
       $this->file = str_ireplace(BASEDIR . '/', '', $epub);
       return $this->get_meta($epub);
     } else {
@@ -69,35 +70,60 @@ class Ebook extends MetaBook {
     }
   }
 
+  public static function createFromFile($epub) {
+    if ($epub && file_exists($epub)) {
+      $newBook = new Ebook();
+      $newBook->file = str_ireplace(BASEDIR . '/', '', $epub);
+      return $newBook->get_meta($epub);
+    }
+  }
+
   /**
    * get Metadata of epub
    * @param  string $epub File reference
-   * @return Ebook        ebook with metadata filled in
+   * @return Ebook|string        ebook with metadata filled in or error
    */
   public function get_meta($epub = null) {
     $filepath = ($epub) ?: $this->getFullFilePath();
     $zip = new \ZipArchive;
 
     if ($zip->open($filepath)===TRUE){
-      $rootfile = $this->get_metafile($zip);
+      try {
+        $rootfile = $this->get_metafile($zip);
+      } catch (Exception $e) {
+        error_log('Opening Book zip ' . $epub . ' / ' . $filepath . ' failed');
+        error_log($e->getMessage());
+        return "No rootfile for $filepath: " . $e->getMessage();
+      }
       $path = dirname($rootfile);
       $this->path = ($path != '.') ? $path . '/':'';
       $dom = new \DOMDocument();
-      $dom->loadXML($zip->getFromName($rootfile));
+      $rootstr = $zip->getFromName($rootfile);
+      if (!$rootstr) {
+        return "file is damaged $filepath";
+      }
+      $dom->loadXML($rootstr, LIBXML_NOERROR | LIBXML_NOWARNING);
       $package = $dom->getElementsByTagName('package')->item(0);
+      /** @var DomElement $package */
       $uniqueid = $package->getAttribute('unique-identifier');
       $version = $package->getAttribute('version');
       $meta = $dom->getElementsByTagName('metadata')->item(0);
       // legacy
       $this->allmeta = $meta;
-
+      
       // Testcode
       $this->spine = new Spine($dom);
       $this->manifest = new Manifest($dom);
       $this->metadata = new EpubMetadata($dom);
       $this->guide = new Guide($dom);
       $tocdom = new \DOMDocument();
-      $ncxpath = $this->path.$this->manifest->getItem('ncx')->href;
+      //defensive programming
+      $ncxitem = $this->manifest->getItem('ncx');
+      if (!$ncxitem) $ncxitem = $this->manifest->getItem('toc');
+      if (!$ncxitem) $ncxitem = $this->manifest->getItem('toc.ncx');
+      if ($ncxitem) {
+        $ncxpath = $this->path.$ncxitem->href;
+      }
       $tocdom->loadXML($zip->getFromName($ncxpath));
       $this->toc = new TableOfContents($tocdom);
       // set members
@@ -106,13 +132,15 @@ class Ebook extends MetaBook {
       $this->sortauthor = strtolower($this->author);
       $this->tags = $this->metadata->getSubjects();
       $this->summary = $this->metadata->getSummary();
+      $this->series = $this->metadata->getSeries();
       //modify
       if (!$this->id) $this->create_id();
       $zip->close();
       return $this;
     }else{
-      error_log('Opening Book zip ' . $epub . ' / ' . $filepath . ' failed');
-      return 'failed';
+      $err = 'Opening Book zip ' . $epub . ' / ' . $filepath . ' failed';
+      error_log($err);
+      return 'Opening Book zip ' . basename($epub) . ' failed';
     }
   }
 
@@ -135,6 +163,7 @@ class Ebook extends MetaBook {
    */
   public function get_metafile($zip) {
       $container = simplexml_load_string($zip->getFromName(Ebook::CONTAINER));
+      if (!$container) throw new \Exception("Epub is damaged");
       $rootfile = $container->rootfiles->rootfile['full-path'];
       return $rootfile;
   }
@@ -169,10 +198,14 @@ class Ebook extends MetaBook {
     if (strpos('#', $idref) !== false) {
       list($idref, $position) = explode('#', $idref);
     }
-    $href = $this->manifest->getItem($idref)->href;
+    $navItem = $this->manifest->getItem($idref);
+    $href = ($navItem) ? $navItem->href : false;
     $navpoint = $this->toc->getById($idref);
     if (!$href) {
       $href = $navpoint->contentSrc;
+    }
+    if (strpos($href, '#') !== false) {
+      $href = substr($href, 0, strpos($href, '#'));
     }
     if (isset($href)){
       $zip = new \ZipArchive;
@@ -248,9 +281,11 @@ class Ebook extends MetaBook {
    */
   public function getFormattedToc($baseurl = '/index.php') {
     $ret = "<body class='read'><ul class='toc'>\n";
-    foreach($this->toc->navpoints as $navpoint) {
-      $ret .= "<li><a href='$baseurl/read/".$this->id."/".$navpoint->id ."'> ";
-      $ret .= $navpoint->navLabel . "</a></li>";
+    if ($this->toc->navpoints) {
+      foreach($this->toc->navpoints as $navpoint) {
+        $ret .= "<li><a href='$baseurl/read/".$this->id."/".$navpoint->id ."'> ";
+        $ret .= $navpoint->navLabel . "</a></li>";
+      }
     }
     $ret .= "</ul>";
     return $ret;
@@ -265,13 +300,13 @@ class Ebook extends MetaBook {
   public function getNextPrev($navpoint, $baseurl = '/index.php') {
     $prev = $this->toc->getByPlayOrder($navpoint->playOrder - 1);
     $prevposition = '';
-    if (strpos('#',$prev->contentSrc) !== 0) {
+    if (strpos('#',$prev->contentSrc) !== false && strpos('#',$next->contentSrc) > 0) {
       list($href, $prevposition) = \explode('#', $prev->contentSrc);
       $prevposition = '#' . $prevposition;
     }
     $next = $this->toc->getByPlayOrder($navpoint->playOrder + 1);
     $nextposition = '';
-    if (strpos('#',$next->contentSrc) !== 0) {
+    if (strpos('#',$next->contentSrc) !== false && strpos('#',$next->contentSrc) > 0) {
       list($href, $nextposition) = \explode('#', $next->contentSrc);
       $nextposition = '#' . $nextposition;
     }
@@ -294,6 +329,7 @@ class Ebook extends MetaBook {
     $this->metadata->setSubjects($this->tags);
     $this->metadata->setTitle($this->title);
     $this->metadata->setSummary($this->summary);
+    $this->metadata->setSeries($this->getSeriesName(), $this->getSeriesVolume());
     $zip = new \ZipArchive;
     if ($zip->open($this->getFullFilePath()) === TRUE) {
 
@@ -409,6 +445,7 @@ class Ebook extends MetaBook {
     if ($zip->open($this->getFullFilePath())===TRUE){
       $zip->deleteName($this->path.$filename);
       $zip->addFromString($this->path.$filename, $data);
+      $zip->close();
       return true;
     }
     return false;

@@ -36,7 +36,7 @@ class MetaBook {
   public $id;
 
   /**
-   * Path to book
+   * Path to book files in zip
    * @var string
    */
   public $path;
@@ -58,6 +58,18 @@ class MetaBook {
    * @var \DateTime
    */
   public $updated;
+
+  /**
+   * series information
+   * @var array
+   */
+  public $series;
+
+  /**
+   * Series id
+   * @var int;
+   */
+  public $seriesId;
 
   /**
    * Create md5 id.
@@ -104,6 +116,22 @@ class MetaBook {
    */
   public function getFullFilePath() {
     return BASEDIR . '/' . $this->file;
+  }
+
+  /**
+   * getter for series name
+   * @return string name
+   */
+  public function getSeriesName() {
+    return isset($this->series[0]) ? $this->series[0] : '' ;
+  }
+
+  /**
+   * get volume of series
+   * @return int volume no.
+   */
+  public function getSeriesVolume() {
+    return isset($this->series[1]) ? $this->series[1] : 0 ;
   }
 
 }

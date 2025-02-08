@@ -18,6 +18,12 @@ class Dispatcher {
   private $display;
 
   /**
+   * microtime request
+   * @var int
+   */
+  private $time;
+
+  /**
    * Dispatcher constructor.
    */
   public function __construct() {
@@ -29,8 +35,12 @@ class Dispatcher {
   /**
    * handle all requests
    * @param array $path request path
+   * @param int   $time microtime
    */
-  public function handleRequest($path) {
+  public function handleRequest($path, $time) {
+    $this->time = $time;
+    // workaround for stupid nginx
+    if ($path[0] == 'index.php') array_shift($path);
     $handler = 'handle'.$path[0];
     $this->$handler($this->library, $path);
   }
@@ -71,7 +81,7 @@ class Dispatcher {
         $list = $this->listdir_by_date($path, $library, 20);
         $this->display->printBookList($list, 'bookswide');
     }
-    $this->display->printFooter();
+    $this->display->printFooter($this->time);
   }
 
   /**
@@ -95,19 +105,32 @@ class Dispatcher {
   }
 
   /**
+   * Get all books by an author
    * @param Library $library   library
    * @param array   $path path
    */
   public function handleauthor($library, $path) {
-    setcookie('booksel', 'author', 0, '/');
     list($discard,$method, $author) = explode('/', $_SERVER['PATH_INFO']);
-    setcookie('selval', $author, 0, '/');
-    $list = $library->getBookList('added desc', 'where author = \'' . \SQLite3::escapeString($path[1]) . '\'');
+    $list = $library->getBookList('added desc', ['author' => [ '=', $path[1]]]);
     $this->display->printHeader();
-    $alist = $this->listdir_by_author($path, $library);
-    $this->display->printAuthorList($alist, 'author', $author);
-    if ($author) $this->display->printBookList($list, 'books');
-    $this->display->printFooter();
+    if ($author) $this->display->printBookList($list, 'bookswide');
+    $this->display->printFooter($this->time);
+    exit;
+  }
+
+  /**
+   * get all books in a series
+   * @param Library $library   library
+   * @param array   $path path
+   */
+  public function handleseries($library, $path) {
+    list($discard,$method, $author) = explode('/', $_SERVER['PATH_INFO']);
+    $list = $library->getBookList('series_volume asc, added desc',
+                                  ['series_id' => ['=', $path[1]]]);
+    $this->display->printHeader();
+    //$alist = $this->listdir_by_author($path, $library);
+    if ($author) $this->display->printBookList($list, 'bookswide');
+    $this->display->printFooter($this->time);
     exit;
   }
 
@@ -123,7 +146,7 @@ class Dispatcher {
     $alist = $library->getTagList(false);
     $this->display->printAuthorList($alist, 'tag', $path[1]);
     if ($path[1]) $this->display->printBookList($list, 'books');
-    $this->display->printFoot();
+    $this->display->printFooter($this->time);
     exit;
   }
 
@@ -148,7 +171,7 @@ class Dispatcher {
     $this->display->printHeader();
     $book->get_meta();
     echo $this->display->showDetails($book);
-    $this->display->printFoot();
+    $this->display->printFooter($this->time);
     exit;
   }
 
@@ -164,7 +187,7 @@ class Dispatcher {
     $this->display->printHeader();
     $book->get_meta();
     echo $this->display->showDetails($book);
-    $this->display->printFoot();
+    $this->display->printFooter($this->time);
     exit;
   }
 
@@ -201,7 +224,7 @@ class Dispatcher {
     echo "Last log entries:<br>";
     $this->display->printLog($log);
     echo "</div>";
-    $this->display->printFooter();
+    $this->display->printFooter($this->time);
   }
 
   /**
@@ -217,16 +240,20 @@ class Dispatcher {
   if (isset($_POST['editactive'])) {
     $book->title = (isset($_POST['title'])) ? $_POST['title']:$book->title;
     $book->author = (isset($_POST['author'])) ? $_POST['author']:$book->author;
-    $book->sortauthor = (isset($_POST['author'])) ? strtolower($_POST['author']):$book->sortauthor;
+    $book->series = (isset($_POST['seriesname'])) ? [$_POST['seriesname'], $_POST['series_volume']] : [];
+    $book->sortauthor = (isset($_POST['author'])) ? strtolower($_POST['author']) : $book->sortauthor;
+    $coverillu = false;
     if (isset($_FILES['illu'])) {
       $fileName = $_FILES['illu']['name'];
       $fileSize = $_FILES['illu']['size'];
       $fileTmpName  = $_FILES['illu']['tmp_name'];
       $fileType = $_FILES['illu']['type'];
-      move_uploaded_file($fileTmpName, dirname(__DIR__) . "/tmp/illu.jpg");
+      if (!isset($_FILES['illu']['error'])) {
+        $coverillu = true;
+        move_uploaded_file($fileTmpName, dirname(__DIR__) . "/tmp/illu.jpg");
+      }
     }
-    if (isset($_FILES['illu']) || (isset($_POST['updatecover']) &&
-                                   $_POST['updatecover'])) {
+    if ($coverillu || (isset($_POST['updatecover']) && $_POST['updatecover'])) {
       $book->updateCover($_POST['updatecover']);
     }
     if (isset($_POST['tags'])) {
@@ -243,7 +270,7 @@ class Dispatcher {
     }
     echo (isset($_POST['editactive'])) ? $this->display->showDetails($book) :
       $this->display->getEditForm($book, $url);
-    $this->display->printFoot();
+    $this->display->printFooter($this->time);
     exit;
   }
 
@@ -274,13 +301,38 @@ class Dispatcher {
    * @param Library $library   library
    * @param array   $path path
    */
+  public function handlelog($library, $path) {
+    $log = $library->getLastLog(50, Library::DEBUG);
+    $this->display->printHeader();
+    echo "<p>Last log entries:</p>";
+    $this->display->printLog($log);
+    echo "</div>";
+    $this->display->printFooter($this->time);
+    exit;
+  }
+
+  /**
+   * @param Library $library   library
+   * @param array   $path path
+   */
+  public function handlefree($library, $path) {
+    $library->setFree();
+    exit;
+  }
+
+  /**
+   * @param Library $library   library
+   * @param array   $path path
+   */
   public function handlesearch($library, $path) {
     if (isset($path[1])) {
-      $search = \SQLite3::escapeString($path[1]);
-      $where = "WHERE title like '%$search%' ";
-      $where .= "or author like '%$search%' ";
-      $where .= "or summary like '%$search%' ";
-      $where .= "or tag like '%$search%' ";
+      $search = "%" . $path[1] . "%";
+      $where = [
+        'title' => ['LIKE', $search],
+        'author' => ['LIKE', $search],
+        'summary' => ['LIKE', $search],
+        'tag' => ['LIKE', $search],
+      ];
       $list = $library->getBooklist('added desc', $where);
       $this->display->printBookList($list, 'bookswide');
     } else {

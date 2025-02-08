@@ -30,7 +30,7 @@ class BrowserDisplay {
           'summary' => $book->trunc_summary(250),
           'finder' => "ebooklib://at.grendel.ebooklib?" . $book->getFullFilePath(),
           'show' => $this->getproto()."://".SERVER.BASEURL."/show/".$book->id."/".$book->title,
-          'download' => $this->getproto()."://".SERVER.BASEURL."/get/".$book->id.'/'.$book->title . '.epub',
+          'download' => $this->getproto()."://".SERVER.BASEURL."/get/".$book->id.'/'. $book->file,
         );
         $data['complete'] = (strpos($data['tags'], 'In-Progress') === false) ?
           ' complete' : '';
@@ -41,34 +41,6 @@ class BrowserDisplay {
     $debug['Rendertime'] = microtime(true) - $time;
 
     echo "<ul></div>";
-  }
-
-  /**
-   * get a formatted list (currently unused)
-   * @method getFormattedList
-   * @param  string           $type author
-   * @return string                 unordered list html
-   */
-  public function getFormattedList($type = 'author') {
-    $db = new Library();
-    $list = $db->getAuthorList();
-    $formattedlist = "<ul>\n";
-    foreach($list as $author => $rec) {
-      $formattedlist .= "<li><a href=\"http://".SERVER.BASEURL."/$what/".$author['name']."/\">$author</a></li>\n";
-    }
-    $formattedlist .= '</ul>';
-    return $formattedlist;
-  }
-
-  /**
-   * [printAuthorList description]
-   * @method printAuthorList
-   * @param  array          $list  author list
-   * @param  string          $type type of list
-   * @return string                html code
-   */
-  public function printAuthorList($list, $type) {
-    return $this->getFormattedList();
   }
 
   /**
@@ -106,9 +78,10 @@ class BrowserDisplay {
    * print footer of page
    * @return string html code
    */
-  public function printFooter() {
+  public function printFooter($time) {
     $tpl = new Template('footer');
-    echo $tpl->render(['foot' => true]);
+    $fulltime = round((microtime(true) - $time) * 1000, 3);
+    echo $tpl->render(['foot' => true, 'time' => $fulltime]);
   }
 
 
@@ -141,10 +114,16 @@ class BrowserDisplay {
    */
   public function showDetails($book, $protocol = 'http') {
     $data = array();
-    $data['geturl'] = "$protocol://".SERVER.BASEURL."/get/".$book->id.'/'.$book->title . '.epub';
+    $data['geturl'] = "$protocol://".SERVER.BASEURL."/get/".$book->id.'/'.$book->file;
     $data['editurl'] = "http://".SERVER.BASEURL."/edit/".$book->id.'/'.$book->title;
     $data['deleteurl'] = "http://".SERVER.BASEURL."/delete/".$book->id.'/'.$book->title;
     $data['refreshurl'] = "http://".SERVER.BASEURL."/refresh/".$book->id.'/'.$book->title;
+    $data['authorurl'] = "http://".SERVER.BASEURL."/author/".$book->author;
+    $seriestpl = new Template('seriesdisplay');
+    $data['seriesurl'] = "http://".SERVER.BASEURL."/series/".$book->seriesId;
+    $data['seriesname'] = $book->getSeriesName();
+    $data['seriesvol'] = $book->getSeriesVolume();
+    $data['series'] = ($book->getSeriesName()) ? $seriestpl->render($data) : '';
     $data['toc'] = $book->getFormattedToc("http://".SERVER.BASEURL);
     $data['finder'] = "ebooklib://at.grendel.ebooklib?" . $book->getFullFilePath();
     $data['title'] = $book->title;
@@ -171,32 +150,10 @@ class BrowserDisplay {
     $data['summary'] = $book->summary;
     $data['tags'] = $book->taglist();
     $data['author'] = $book->author;
+    $data['seriesname'] = $book->getSeriesName();
+    $data['seriesvol'] = $book->getSeriesVolume();
     $data['backurl'] = "http://".SERVER.BASEURL."/show/".$book->id.'/'.$book->title;
     return $form->render($data);
-  }
-
-  /**
-   * old print footer
-   * @deprecated superseeded by printFooter
-   * @return string html
-   */
-  public function printFoot() {
-    $time = microtime(true);
-    $foot = <<<EOT
-  <script type="text/javascript" language="javascript" charset="utf-8">
-  var pos = $('#list li.current').position().top;
-  pos = pos - 100;
-  $('#list').scrollTop(pos);
-  var pos = $('#books li.current').position().top;
-  //pos = pos - 100;
-  $('#books').scrollTop(pos);
-  </script>
-  </body>
-  </html>
-EOT;
-    echo $foot;
-    global $debug;
-    $debug['Rendertime'] = microtime(true) - $time;
   }
 
   /**
@@ -212,6 +169,14 @@ EOT;
       echo "</tr>";
     }
     echo "</table>";
+  }
+
+  private function getSeriesMenu($book) {
+    $db = new Library();
+    $serieslist = $db->getSeriesList();
+    foreach ($serieslist as $id => $series) {
+
+    }
   }
 
 }

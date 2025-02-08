@@ -1,6 +1,8 @@
 <?php
 namespace EBookLib;
 
+use SQLite3;
+
 require_once(dirname(__DIR__) . "/config.php");
 /**
  * Base class for sqlite interaction with schema and queries.
@@ -35,7 +37,6 @@ class Library{
     }
     $time = microtime(true);
     $this->db = $this->getdb($db);
-    $this->checkTables();
     $debug['library startup'] = microtime(true) - $time;
   }
 
@@ -60,67 +61,6 @@ class Library{
     }
   }
 
-  /**
-   * utility method to create or modify all sqlite tables.
-   * @return bool result
-   */
-  private function checkTables() {
-    return true;
-    $q=$this->db->query("PRAGMA table_info(books)");
-    if ($q->fetchArray() < 1) {
-        if (!$this->db->exec("
-            CREATE TABLE books (
-                id INTEGER NOT NULL PRIMARY KEY,
-                title VARCHAR ( 255 ) NOT NULL,
-                author VARCHAR(255) NOT NULL,
-                sortauthor VARCHAR(255) NOT NULL,
-                file VARCHAR(255) NOT NULL,
-                summary TEXT,
-                md5id varchar(255) NOT NULL UNIQUE,
-                added timestamp NOT NULL
-                )")
-        ) exit ("Create SQLite Database Error\n");
-    }
-    $q=$this->db->query("PRAGMA table_info(tags)");
-    if ($q->fetchArray() < 1) {
-        if (!$this->db->exec("
-            CREATE TABLE tags (
-                id INTEGER NOT NULL PRIMARY KEY,
-                tag VARCHAR ( 255 ) NOT NULL UNIQUE
-                )")
-        ) exit ("Create SQLite Database Error\n");
-    }
-    $q=$this->db->query("PRAGMA table_info(taggedbooks)");
-    if ($q->fetchArray() < 1) {
-        if (!$this->db->exec("
-            CREATE TABLE taggedbooks (
-                bookid INTEGER NOT NULL,
-                tagid  INTEGER NOT NULL
-                )")
-        ) exit ("Create SQLite Database Error\n");
-    }
-    $q=$this->db->query("PRAGMA table_info(activitylog)");
-    if ($q->fetchArray() < 1) {
-        if (!$this->db->exec("
-            CREATE TABLE activitylog (
-                logid INTEGER NOT NULL PRIMARY KEY,
-                datestamp  TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                entry TEXT NOT NULL
-                )")
-        ) exit ("Create SQLite Database Error\n");
-    }
-    $q=$this->db->query("PRAGMA table_info(downloadqueue)");
-    if ($q->fetchArray() < 1) {
-        if (!$this->db->exec("
-            CREATE TABLE downloadqueue (
-                queueid INTEGER NOT NULL PRIMARY KEY,
-                datestamp  TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                entry VARCHAR(255) NOT NULL,
-                done INTEGER DEFAULT 0 NOT NULL
-                )")
-        ) exit ("Create SQLite Database Error\n");
-    }
-  }
 
   /**
    * insert metadata of book into db
@@ -128,26 +68,38 @@ class Library{
    * @return bool|int     success or error
    */
   public function insertBook($ebook) {
-    $qry = "insert or replace into books (title,
-                               author,
-                               sortauthor,
-                               file,
-                               summary,
-                               md5id,
-                               added)
-                               values
-                   ('".\SQLite3::escapeString($ebook->title)."',
-                    '".\SQLite3::escapeString($ebook->author)."',
-                    '".\SQLite3::escapeString($ebook->sortauthor)."',
-                    '".\SQLite3::escapeString($ebook->file)."',
-                    '".\SQLite3::escapeString($ebook->summary)."',
-                    '".\SQLite3::escapeString($ebook->id)."',
-                    '".time()."')";
-    $success = $this->db->exec($qry);
+    // $qry = "insert or replace into books (title,
+    //                            author,
+    //                            sortauthor,
+    //                            file,
+    //                            summary,
+    //                            md5id,
+    //                            added)
+    //                            values
+    //                ('".\SQLite3::escapeString($ebook->title)."',
+    //                 '".\SQLite3::escapeString($ebook->author)."',
+    //                 '".\SQLite3::escapeString($ebook->sortauthor)."',
+    //                 '".\SQLite3::escapeString($ebook->file)."',
+    //                 '".\SQLite3::escapeString($ebook->summary)."',
+    //                 '".\SQLite3::escapeString($ebook->id)."',
+    //                 '".time()."')";
+    // $success = $this->db->exec($qry);
+    $fields = [
+      'title'      => ['string', \SQLite3::escapeString($ebook->title)],
+      'author'     => ['string', \SQLite3::escapeString($ebook->author)],
+      'sortauthor' => ['string', \SQLite3::escapeString($ebook->sortauthor)],
+      'file'       => ['string', \SQLite3::escapeString($ebook->file)],
+      'summary'    => ['string', \SQLite3::escapeString($ebook->summary)],
+      'md5id'      => ['string', \SQLite3::escapeString($ebook->id)],
+      'added'      => ['num', time()]
+    ];
+    $success = $this->insert($fields, 'books', true);
+
     $qry = "select * from books where md5id = '".$ebook->id."'";
     $res = $this->db->query($qry);
     $row = $res->fetcharray();
     $bookid = $row['id'];
+    // Tags
     $success = $success && $this->db->exec("DELETE FROM taggedbooks WHERE bookid = '$bookid'");
     if (empty($ebook->tags)) $ebook->tags[] = 'untagged';
     foreach($ebook->tags as $id => $tag) {
@@ -155,11 +107,14 @@ class Library{
       $qry = "select id from tags where tag = '$tag'";
       $tagid = $this->db->querySingle($qry);
       if (!$tagid) {
-        $this->db->exec("insert into tags (tag) values ('$tag')");
+        $this-insert(['tag' => ['string', $tag]], 'tags');
         $tagid = $this->db->querySingle($qry);
       }
-      $success = $success && $this->db->exec("INSERT INTO taggedbooks (bookid, tagid) values ('$bookid', '$tagid')");
+      $ids = ['bookid' => ['num', $bookid],
+              'tagid'  => ['num', $tagid]];
+      $success = $success && $this->insert($ids, 'taggedbooks');
     }
+    $success = $this->updateSeries($ebook, $success);
     return ($success) ? true : $this->db->lastErrorCode();
   }
 
@@ -167,13 +122,14 @@ class Library{
    * @param Ebook $ebook
    */
   public function updateBook($ebook) {
-    $qry = "update books
-              SET  title = '".\SQLite3::escapeString($ebook->title)."',
-                  author = '".\SQLite3::escapeString($ebook->author)."',
-              sortauthor = '".\SQLite3::escapeString($ebook->sortauthor)."',
-                 summary = '".\SQLite3::escapeString($ebook->summary)."'
-             WHERE md5id = '".\SQLite3::escapeString($ebook->id)."'";
-    $this->db->exec($qry);
+    $fields = [
+      'title' => ['string', $ebook->title],
+      'author' => ['string', $ebook->author],
+      'sortauthor' => ['string', $ebook->sortauthor],
+      'summary' => ['string', $ebook->summary],
+    ];
+    $success = $this->update($fields, 'books', ['md5id' => ['=', $ebook->id]]);
+
     $qry = "select * from books where md5id = '".$ebook->id."'";
     $res = $this->db->query($qry);
     $row = $res->fetcharray();
@@ -183,11 +139,14 @@ class Library{
       $qry = "select id from tags where tag = '$tag'";
       $tagid = $this->db->querySingle($qry);
       if (!$tagid) {
-        $this->db->exec("insert into tags (tag) values ('$tag')");
+        $this-insert(['tag' => ['string', $tag]], 'tags');
         $tagid = $this->db->querySingle($qry);
       }
-      $this->db->exec("INSERT INTO taggedbooks (bookid, tagid) values ('$bookid', '$tagid')");
+      $ids = ['bookid' => ['num', $bookid],
+              'tagid'  => ['num', $tagid]];
+      $success = $success && $this->insert($ids, 'taggedbooks');
     }
+    $success = $this->updateSeries($ebook, true);
   }
 
   /**
@@ -206,6 +165,7 @@ class Library{
     $book->file = $row['file'];
     $book->summary = $row['summary'];
     $book->id = $row['md5id'];
+    $book->seriesId = $row['series_id'];
     $tagquery = "select tag from tags join taggedbooks on taggedbooks.tagid = tags.id where taggedbooks.bookid = '" . $row['id'] . "'";
     $tagres = $this->db->query($tagquery);
     while($tagrow = $tagres->fetchArray()) {
@@ -221,10 +181,11 @@ class Library{
    * @param  bool   $limit limit
    * @return array         books
    */
-  public function getBooklist($order = 'added desc', $where = '', $limit = false) {
+  public function getBooklist($order = 'added desc', $where = '', $limit = 20) {
     $res = $this->bookQuery($order, $where, $limit);
     $booklist = array();
-    while ($row = $res->fetchArray()) {
+    foreach ($res as $row) {
+      error_log(print_r($row, true));
         $book = new Ebook();
         $book->title = $row['title'];
         $book->author = $row['author'];
@@ -246,12 +207,21 @@ class Library{
    * @param  bool   $limit use a limit
    * @return array        book array
    */
-  public function getBookarray($order = 'added desc', $where = '', $limit = false) {
+  public function getBookarray($order = 'added desc', $where = [], $limit = false) {
     global $debug;
-    $res = $this->bookQuery($order, $where, $limit);
+    //$res = $this->bookQuery($order, $where, $limit);
+    $limit = ($limit) ? 30 : false;
+    $result = $this->select(['title', 'author', 'sortauthor', 'file', 'summary',
+                              'md5id', 'added', 'group_concat(tag) as tags'],
+                            [
+                              ['books', ''],
+                              ['taggedbooks', 'books.id = bookid'],
+                              ['tags', 'tagid = tags.id']
+                            ],
+                            [], 'books.id', $order, $limit);
     $booklist = array();
     $time = microtime(true);
-    while ($row = $res->fetchArray()) {
+    foreach ($result as $row) {
       $book = new MetaBook();
       $book->title = $row['title'];
       $book->author = $row['author'];
@@ -271,20 +241,16 @@ class Library{
 
   /**
    * get list of authors
-   * @param  string $order order by
-   * @return array         name, books
+   * @return array         id, name
    */
-  public function getAuthorlist($order = 'sortauthor asc') {
-    $booklist = array();
-    $qry = "select author, title, sortauthor from books order by $order";
+  public function getSerieslist() {
+    $serieslist = array();
+    $qry = "select id, name from series order by name";
     $res = $this->db->query($qry);
     while ($row = $res->fetchArray()) {
-      if(strlen($row['title']) > 0) {
-        $booklist[$row['author']]['name'] = $row['author'];
-        $booklist[$row['author']]['books'][] = $row['title'];
-      }
+      $serieslist[$row['id']] = $row['name'];
     }
-    return $booklist;
+    return $serieslist;
   }
 
   /**
@@ -320,18 +286,24 @@ class Library{
    */
   public function getTaggedBooks($tag, $order = 'added desc') {
     $booklist = array();
-    $qry = "select * from books join taggedbooks on taggedbooks.bookid = books.id join tags on tags.id = taggedbooks.tagid where tag = '$tag' order by $order";
-    $res = $this->db->query($qry);
-    while ($row = $res->fetchArray()) {
-        $book = new Ebook();
-        $book->title = $row['title'];
-        $book->author = $row['author'];
-        $book->sortauthor = $row['sortauthor'];
-        $book->file = $row['file'];
-        $book->summary = $row['summary'];
-        $book->id = $row['md5id'];
-        $book->updated = $row['added'];
-        $booklist[$book->sortauthor.$book->title] = $book;
+    $result = $this->select(['*'],
+                            [
+                              ['books',''],
+                              ['taggedbooks', 'taggedbooks.bookid = books.id'],
+                              ['tags', 'tags.id = taggedbooks.tagid']
+                            ],
+                            ['tag' => ['=', $tag]], false,
+                            $order);
+    foreach ($result as $key => $row) {
+      $book = new Ebook();
+      $book->title = $row['title'];
+      $book->author = $row['author'];
+      $book->sortauthor = $row['sortauthor'];
+      $book->file = $row['file'];
+      $book->summary = $row['summary'];
+      $book->id = $row['md5id'];
+      $book->updated = $row['added'];
+      $booklist[$book->sortauthor.$book->title] = $book;
     }
     return $booklist;
   }
@@ -393,22 +365,20 @@ class Library{
    */
   protected function bookQuery($order, $where, $limit)
   {
-    $this->logThis("where: " .$where, 2);
+    $this->logThis("where: " .print_r($where,true), 2);
     $time = microtime(true);
-    $limstr = ($limit) ? " LIMIT 30" : '';
-    $qry = "select title, author, sortauthor, file, summary, md5id, added, " .
-      "group_concat(tag) " .
-      "as tags from books" .
-      " join taggedbooks on books.id = bookid " .
-      " join tags on tagid = tags.id " .
-      " $where " .
-      " group by books.id" .
-      " order by $order $limstr";
-    $res = $this->db->query($qry);
-    $this->logThis($qry, 2);
+    $limit = ($limit) ? 30 : false;
+    $result = $this->select(['title', 'author', 'sortauthor', 'file', 'summary',
+                              'md5id', 'added', 'group_concat(tag) as tags'],
+                            [
+                              ['books', ''],
+                              ['taggedbooks', 'books.id = bookid'],
+                              ['tags', 'tagid = tags.id']
+                            ],
+                            $where, 'books.id', $order, $limit);
     global $debug;
     $debug["DB Select"] = microtime(true) - $time;
-    return $res;
+    return $result;
   }
 
   /**
@@ -468,8 +438,211 @@ class Library{
    * @return bool success
    */
   public function setQueueEntryDone($entry) {
-    $query = "UPDATE downloadqueue SET done = 1 where entry = '$entry'";
-    return $this->db->exec($query);
+    $this->update(['done' => ['bool' => true]], 'downloadqueue',
+                  "entry = '$entry'");
+  }
+
+  /**
+   * Update series information
+   * @param Ebook $ebook   ebook
+   * @param bool  $success return val
+   * @return bool
+   */
+  private function updateSeries($ebook, $success)
+  {
+    if ($ebook->getSeriesName() != '') {
+      $this->logThis('has series', 2);
+      $sqry = "select * from series";
+      $sres = $this->db->query($sqry);
+      $serieslist = array();
+      while ($row = $sres->fetchArray()) {
+          $serieslist[$row['id']] = $row['name'];
+      }
+      $done = false;
+      foreach ($serieslist as $key => $seriesname) {
+        if ($seriesname == $ebook->getSeriesName()) {
+          $ebook->seriesId = $key;
+          $this->update(['series' => $key,
+                         'volume' => $ebook->getSeriesVolume()],
+                        'books', ['md5id' => ['=', $ebook->id]]);
+          $done = true;
+        }
+      }
+      if (!$done) {
+        $this->insert(['name' => ['string', $ebook->getSeriesName()]], 'series');
+        $key = $this->db->querySingle("SELECT id from series WHERE name = '" . $ebook->getSeriesName() . "'");
+        $upd = $this->update(['series_id' => $key,
+                       'series_volume' => $ebook->getSeriesVolume()],
+                       'books', ['md5id' => ['=', $ebook->id]]);
+        $success = $success && $upd;
+      }
+    }
+    return $success;
+  }
+
+  /**
+   * set Busy flag and job
+   * @param string $job job that keeps busy
+   */
+  public function setBusy($job) {
+    $this->update(['busy' => ['bool', true], 'job' => ['string', $job]],
+                  'busy_flag');
+  }
+
+  /**
+   * unset busy flag
+   */
+  public function setFree() {
+    $this->update(['busy' => ['bool', false], 'job' => ['string', '']],
+                  'busy_flag');
+  }
+
+  /**
+   * if busy flag is set, return job
+   * @return bool|string job or false
+   */
+  public function isBusy() {
+    $qry = "select job from busy_flag where busy = 1";
+    $res = $this->db->querySingle($qry);
+    return ($res) ? $res : false;
+  }
+
+  /**
+   * build and execute update query.
+   * @param  array  $fields [name => [type, value]]
+   * @param  string $table  table
+   * @param  array  $where  [name => [operator, value]]
+   * @return boolean        success
+   */
+  public function update($fields, $table, $where = null) {
+    $qry = "UPDATE $table SET ";
+    foreach ($fields as $name => $record) {
+      [$type, $value] = $record;
+      switch ($type) {
+        case 'num':
+          $updates[] = "$name = $value";
+          break;
+        case 'bool':
+          $updates[] = ($value) ? "$name = 1" : "$name = 0";
+          break;
+        case 'string':
+        case 'date':
+          $value = \SQLite3::escapeString($value);
+          $updates[] = "$name = '$value'";
+          break;
+        default:
+          $value = \SQLite3::escapeString($value);
+          $updates[] = "$name = '$value'";
+      }
+    }
+    $qry .= \implode(', ', $updates);
+    if ($where) {
+      foreach ($where as $name => $condition) {
+        [$operator, $value] = $condition;
+        if (\is_string($value)) {
+          $value = "'" . SQLite3::escapeString($value) . "'";
+        }
+        $whereCondition[] = "$name $operator $value";
+      }
+      $qry .= " WHERE " . \implode(' AND ', $whereCondition);
+    }
+    $result = $this->db->exec($qry);
+    $this->logThis($qry, self::DEBUG);
+    return $result;
+  }
+
+  /**
+   * build and execute update query.
+   * @param  array  $fields  [name => [type, value]]
+   * @param  string $table   table
+   * @param  bool   $replace or replace
+   * @return boolean         success
+   */
+  public function insert($fields, $table, $replace = false) {
+    $qry = ($replace) ? "INSERT OR REPLACE INTO $table " : "INSERT INTO $table ";
+    $i = 0;
+    foreach ($fields as $name => $record) {
+      [$type, $value] = $record;
+      $which[$i] = $name;
+      switch ($type) {
+        case 'num':
+          $values[$i] = "$value";
+          break;
+        case 'bool':
+          $values[$i] = ($value) ? 1 : 0;
+          break;
+        case 'string':
+        case 'date':
+          $values[$i] = \SQLite3::escapeString($value);
+          break;
+        default:
+          $values[$i] = \SQLite3::escapeString($value);
+      }
+      $i++;
+    }
+    $qry .= '(' . \implode(', ', $which) . ') ';
+    $qry .= 'VALUES (' .  \implode(', ', $values) . ')';
+    $result = $this->db->exec($qry);
+    if ($table != 'activitylog') $this->logThis($qry, self::DEBUG);
+    return $result;
+  }
+
+  /**
+   * General select
+   * @param  array  $fields [description]
+   * @param  array  $tables ['table', 'optional join condition']
+   * @param  array  $where  ['field' => ['operator', 'value']]
+   * @param  string $group  group by
+   * @param  string $order  order by
+   * @param  int    $limit  limit
+   * @param  bool   $single return single value
+   * @return array|string   result
+   */
+  public function select($fields, $tables, $where, $group = false,
+                         $order = false, $limit = false, $single = false) {
+    $qry = "SELECT " . implode(', ', $fields) . ' ';
+    $from = '';
+    foreach($tables as $tabledef) {
+      [$table, $joinCondition] = $tabledef;
+      if (!$joinCondition) {
+        $from = "FROM $table ";
+      } else {
+        $from .= " JOIN $table ON $joinCondition";
+      }
+    }
+    $qry .= $from;
+    if ($where) {
+      foreach ($where as $name => $condition) {
+        [$operator, $value] = $condition;
+        if (\is_string($value)) {
+          $value = "'" . SQLite3::escapeString($value) . "'";
+        }
+        $whereCondition[] = "$name $operator $value";
+      }
+      $qry .= " WHERE " . \implode(' OR ', $whereCondition);
+    }
+    if ($group) {
+      $qry .= " GROUP BY $group";
+    }
+    if ($order) {
+      $qry .= " ORDER BY $order";
+    }
+    if ($limit) {
+      $qry .= " LIMIT $limit";
+    }
+    if ($single) {
+      $res = $this->db->querySingle($qry);
+      $result = ($res) ? $res : false;
+    } else {
+      $this->logThis($qry, 2);
+      $query = $this->db->query($qry);
+      $result = [];
+      while ($row = $query->fetchArray()) {
+        $result[] = $row;
+      }
+    }
+    $this->logThis($qry, self::DEBUG);
+    return $result;
   }
 
 }

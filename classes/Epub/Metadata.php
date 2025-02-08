@@ -11,7 +11,8 @@ class Metadata {
    * @var array
    */
   private $namespaces = ['xmlns:dc' => 'http://purl.org/dc/elements/1.1/',
-                         'xmlns:opf' => 'http://www.idpf.org/2007/opf'];
+                         'xmlns:opf' => 'http://www.idpf.org/2007/opf',
+                         'xmlns:calibre' => 'http://calibre.kovidgoyal.net/2009/metadata'];
 
   /**
    * dublin core items
@@ -148,6 +149,19 @@ class Metadata {
   }
 
   /**
+   * getter for title tag
+   * @return string title
+   */
+  public function getSource() {
+    $title = [];
+    foreach ($this->dcItems as $key => $item) {
+      if ($item->isSource()) return $item->getContent();
+    }
+    return '';
+  }
+
+
+  /**
    * getter
    * @return string cover id in manifest
    */
@@ -173,6 +187,54 @@ class Metadata {
     }
     if (!$exists) {
       $this->metaItems[] = new MetaItem('cover', $coverId);
+    }
+  }
+
+  /**
+   * getter
+   * @return array series name and number
+   */
+  public function getSeries() {
+    $series = null;
+    $volume = 0;
+    foreach ($this->metaItems as $key => $item) {
+      if ($item->isSeries()) {
+        $series = $item->getContent();
+      }
+      if ($item->isSeriesVolume()) {
+        $volume = $item->getContent();
+      }
+    }
+    return ($series) ? [$series, $volume] : [];
+  }
+
+  /**
+   * setter for cover tag
+   * @param string $series series name
+   * @param int    $volume volume number
+   */
+  public function setSeries($series, $volume) {
+    $exists = false;
+    foreach ($this->metaItems as $key => $item) {
+      if ($item->isSeries()) {
+        $item->setContent($series);
+        $this->metaItems[$key] = $item;
+        $exists = true;
+      }
+    }
+    if (!$exists) {
+      $this->metaItems[] = new MetaItem('calibre:series', $series);
+    }
+    $exists = false;
+    foreach ($this->metaItems as $key => $item) {
+      if ($item->isSeriesVolume()) {
+        $item->setContent($volume);
+        $this->metaItems[$key] = $item;
+        $exists = true;
+      }
+    }
+    if (!$exists) {
+      $this->metaItems[] = new MetaItem('calibre:series_index', $volume);
     }
   }
 

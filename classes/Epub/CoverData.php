@@ -1,9 +1,17 @@
 <?php
 namespace EBookLib\Epub;
 
+use EBookLib\Template;
+use EBookLib\Ebook;
+
 class CoverData {
 
+  /**
+   * ebook
+   * @var Ebook
+   */
   private $ebook;
+
   /**
    * imagepath
    * @var string
@@ -12,6 +20,7 @@ class CoverData {
 
   public $coverId;
 
+  public $coverimage;
   public $coverpage;
 
   public $coverpageId;
@@ -22,8 +31,8 @@ class CoverData {
    */
   public function __construct($ebook) {
     $this->ebook = $ebook;
-    $this->coverId = $ebook->metadata->getCover();
-    $this->coverPath = $ebook->manifest->getItem($this->coverId)->href;
+    $this->coverId = ($ebook->metadata) ? $ebook->metadata->getCover() : null;
+    $this->coverPath = ($ebook->manifest) ?  $ebook->manifest->getItem($this->coverId)->href : null;
   }
 
   /**
@@ -31,12 +40,8 @@ class CoverData {
    * @return string html
    */
   private function getCoverHtml() {
-    $html = "<html><head><title>Cover</title></head><body><div>";
-    $html .= "<img title='cover' alt='cover' ";
-    $html .= " style='width: auto; height:98%' margin: 1%' ";
-    $html .= " src='" . $this->coverPath . "'>";
-    $html .= "</div></body></html>";
-    return $html;
+    $tpl = new Template('cover');
+    return $tpl->render(['title' => $this->ebook->title]);
   }
 
   /**
@@ -48,17 +53,26 @@ class CoverData {
       $this->coverId = 'cover';
     }
     if (!$this->ebook->metadata->getCover()) {
-      $this->ebook->metadata->setCover($this->coverId);
+      $this->ebook->metadata->setCover($this->coverId . 'image');
       $this->coverPath = 'Images/cover.png';
+      $this->ebook->writeToZip('cover.xhtml', $this->getCoverHtml());
     }
     if (!$this->ebook->manifest->getItem($this->coverId)) {
-      $this->ebook->manifest->setItem($this->coverId, 'image/png', $this->coverPath);
+      $this->ebook->manifest->setItem($this->coverId, 'application/xhtml+xml',
+                                      $this->ebook->path . 'cover.xhtml');
+      $this->ebook->manifest->setItem($this->coverId .'image', 'image/png',
+                                      $this->coverPath);
     } else {
       $this->coverPath = $this->ebook->manifest->getItem($this->coverId)->href;
     }
     $this->ebook->writeToZip($this->coverPath, \file_get_contents($coverPath));
     if (!$this->ebook->spine->getItem($this->coverId)) {
       array_unshift($this->ebook->spine->items, new SpineItem($this->coverId, true));
+    }
+    if (!$this->ebook->guide->getItem($this->coverId)) {
+      array_unshift($this->ebook->guide->items,
+                    new GuideItem($this->ebook->path . 'cover.xhtml',
+                    $this->coverId, 'Cover'));
     }
   }
 
